@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Variable-Weighted DSS 백테스터 V1.0.6</title>
+    <title>Variable-Weighted DSS 백테스터 V1.0.7</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Chart.js -->
@@ -87,7 +87,7 @@
     </div>
 
     <!-- 버전 정보 -->
-    <div class="absolute top-2 right-2 text-[10px] text-gray-400 font-mono select-none">V1.0.6</div>
+    <div class="absolute top-2 right-2 text-[10px] text-gray-400 font-mono select-none">V1.0.7</div>
 
     <div class="container mx-auto p-4 max-w-[1400px]">
         <!-- 헤더 -->
@@ -229,8 +229,8 @@
 
             <!-- 결과 영역 -->
             <div id="resultArea" class="hidden animate-fade-in">
-                <!-- 결과 요약 패널 (10컬럼으로 확장) -->
-                <div class="grid grid-cols-2 md:grid-cols-5 lg:grid-cols-10 gap-4 mb-6">
+                <!-- 결과 요약 패널 (12컬럼으로 확장) -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-4 mb-6">
                     <div class="bg-white p-3 rounded shadow text-center border-t-4 border-indigo-500"><p class="text-xs text-gray-500 font-bold uppercase">최종 자산</p><p id="resFinalValue" class="text-lg font-extrabold text-indigo-700 mt-2">-</p></div>
                     <div class="bg-white p-3 rounded shadow text-center border-t-4 border-gray-400"><p class="text-xs text-gray-500 font-bold uppercase">누적 수익률</p><p id="resTotalReturn" class="text-lg font-extrabold mt-2">-</p></div>
                     <div class="bg-white p-3 rounded shadow text-center border-t-4 border-green-500"><p class="text-xs text-gray-500 font-bold uppercase">CAGR</p><p id="resCagr" class="text-lg font-extrabold text-green-600 mt-2">-</p></div>
@@ -241,6 +241,8 @@
                     <div class="bg-white p-3 rounded shadow text-center border-t-4 border-blue-500"><p class="text-xs text-gray-500 font-bold uppercase">승률</p><p id="resWinRate" class="text-lg font-extrabold text-blue-600 mt-2">-</p></div>
                     <div class="bg-white p-3 rounded shadow text-center border-t-4 border-teal-500"><p class="text-xs text-gray-500 font-bold uppercase">총 손익비</p><p id="resProfitFactor" class="text-lg font-extrabold text-teal-600 mt-2">-</p></div>
                     <div class="bg-white p-3 rounded shadow text-center border-t-4 border-cyan-500"><p class="text-xs text-gray-500 font-bold uppercase">평균 손익비</p><p id="resPayoffRatio" class="text-lg font-extrabold text-cyan-600 mt-2">-</p></div>
+                    <div class="bg-white p-3 rounded shadow text-center border-t-4 border-lime-500"><p class="text-xs text-gray-500 font-bold uppercase">평균 이익</p><p id="resAvgWin" class="text-lg font-extrabold text-lime-600 mt-2">-</p></div>
+                    <div class="bg-white p-3 rounded shadow text-center border-t-4 border-rose-500"><p class="text-xs text-gray-500 font-bold uppercase">평균 손실</p><p id="resAvgLoss" class="text-lg font-extrabold text-rose-600 mt-2">-</p></div>
                 </div>
 
                 <!-- 연도별 성과 분석 테이블 -->
@@ -677,10 +679,11 @@
             let annualRealizedProfit = 0, annualTotalWithdrawal = 0;
             const lastYear = endDate.getFullYear();
             let tradeCount = 0, winCount = 0, totalGrossProfit = 0, totalGrossLoss = 0;
+            let sumWinPct = 0, sumLossPct = 0;
             
             let slotStats = {
-                sf: Array.from({length: 50}, () => ({ trades: 0, wins: 0, grossProfit: 0, grossLoss: 0 })),
-                ag: Array.from({length: 50}, () => ({ trades: 0, wins: 0, grossProfit: 0, grossLoss: 0 }))
+                sf: Array.from({length: 50}, () => ({ trades: 0, wins: 0, grossProfit: 0, grossLoss: 0, sumWinPct: 0, sumLossPct: 0 })),
+                ag: Array.from({length: 50}, () => ({ trades: 0, wins: 0, grossProfit: 0, grossLoss: 0, sumWinPct: 0, sumLossPct: 0 }))
             };
 
             const sfRule = { loc: 1+sfLoc/100, profit: 1+sfProfit/100, split: sfSplit, hold: sfHold, weights: sfWeights || [] };
@@ -734,22 +737,33 @@
                         const feeBroker = floorVal(revenue*(brokerFee/100), precPrice);
                         const feeSec = useSecFee ? floorVal(revenue*SEC_FEE_RATE, precPrice) : 0;
                         const netRev = revenue-feeBroker-feeSec;
-                        const profit = netRev-(h.buyPrice*h.qty)-(h.buyFee||0);
+                        const investCost = (h.buyPrice*h.qty)+(h.buyFee||0);
+                        const profit = netRev - investCost;
+                        const tradePct = investCost > 0 ? (profit / investCost) * 100 : 0;
                         
                         cash = roundVal(cash+netRev, precPrice);
                         cumulativeProfit += profit; periodProfit += profit; dailyRealizedProfit += profit;
                         soldToday = true; h.sellDate = curr.date;
                         tradeCount++;
-                        if (profit>0) { winCount++; totalGrossProfit+=profit; } else { totalGrossLoss+=Math.abs(profit); }
+                        if (profit>0) { 
+                            winCount++; 
+                            totalGrossProfit+=profit; 
+                            sumWinPct += tradePct;
+                        } else { 
+                            totalGrossLoss+=Math.abs(profit); 
+                            sumLossPct += Math.abs(tradePct);
+                        }
                         
                         let modeKey = (h.mode==='SF'||h.mode==='안전') ? 'sf' : 'ag';
-                        if (slotStats[modeKey] && slotStats[modeKey][h.slot]) {
+                        if (slotStats[modeKey] && slotStats[modeKey][h.slot] !== undefined) {
                             slotStats[modeKey][h.slot].trades++;
                             if (profit > 0) {
                                 slotStats[modeKey][h.slot].wins++;
                                 slotStats[modeKey][h.slot].grossProfit += profit;
+                                slotStats[modeKey][h.slot].sumWinPct += tradePct;
                             } else {
                                 slotStats[modeKey][h.slot].grossLoss += Math.abs(profit);
+                                slotStats[modeKey][h.slot].sumLossPct += Math.abs(tradePct);
                             }
                         }
                     } else { 
@@ -765,7 +779,6 @@
                 const targetBuyPrice = floorVal(prev.close*rule.loc, precPrice);
                 let buyExecutedQty = 0, newPort = null, isPartialBuy = false;
 
-                // 전일 기준 예약 가능한 슬롯이 남아 있었을 때만 당일 매수 유효
                 if (reservedSlotIndex < rule.split && curr.close <= targetBuyPrice) {
                     let availableSlot = reservedSlotIndex;
 
@@ -878,11 +891,11 @@
             const profitFactor=totalGrossLoss===0 ? (totalGrossProfit>0?999:0) : totalGrossProfit/totalGrossLoss;
             
             const lossCount = tradeCount - winCount;
-            const avgWin = winCount > 0 ? totalGrossProfit / winCount : 0;
-            const avgLoss = lossCount > 0 ? totalGrossLoss / lossCount : 0;
-            const payoffRatio = avgLoss === 0 ? (avgWin > 0 ? 999 : 0) : (avgWin / avgLoss);
+            const avgWinPct = winCount > 0 ? sumWinPct / winCount : 0;
+            const avgLossPct = lossCount > 0 ? sumLossPct / lossCount : 0;
+            const payoffRatio = avgLossPct === 0 ? (avgWinPct > 0 ? 999 : 0) : (avgWinPct / avgLossPct);
             
-            return { history, dds, stats:{finalValue:last.val,totalReturn,cagr,mdd,painIndex,gpr,calmar,winRate,profitFactor,payoffRatio}, slotStats, params };
+            return { history, dds, stats:{finalValue:last.val,totalReturn,cagr,mdd,painIndex,gpr,calmar,winRate,profitFactor,payoffRatio,avgWinPct,avgLossPct}, slotStats, params };
         }
 
         // ===== 백테스트 실행 =====
@@ -1346,6 +1359,8 @@
             document.getElementById('resWinRate').innerText = `${formatNum(stats.winRate)}%`;
             document.getElementById('resProfitFactor').innerText = stats.profitFactor===999?'Inf':formatNum(stats.profitFactor);
             document.getElementById('resPayoffRatio').innerText = stats.payoffRatio===999?'Inf':formatNum(stats.payoffRatio);
+            document.getElementById('resAvgWin').innerText = `+${formatNum(stats.avgWinPct)}%`;
+            document.getElementById('resAvgLoss').innerText = `-${formatNum(stats.avgLossPct)}%`;
             
             drawAnnualMetrics(calculateAnnualMetrics(history, startVal));
             drawChart(history, dds);
@@ -1372,22 +1387,25 @@
                 const sfValid = i < sfSplit;
                 const agValid = i < agSplit;
                 
+                // --- SF Score Logic (%) ---
                 const sfWinRate = sfData.trades > 0 ? (sfData.wins / sfData.trades) : 0;
                 const sfLossRate = sfData.trades > 0 ? 1 - sfWinRate : 0;
                 const sfLossCount = sfData.trades - sfData.wins;
-                const sfAvgWin = sfData.wins > 0 ? sfData.grossProfit / sfData.wins : 0;
-                const sfAvgLoss = sfLossCount > 0 ? sfData.grossLoss / sfLossCount : 0;
-                const sfPayoff = sfAvgLoss === 0 ? (sfAvgWin > 0 ? 999 : 0) : (sfAvgWin / sfAvgLoss);
+                const sfAvgWinPct = sfData.wins > 0 ? sfData.sumWinPct / sfData.wins : 0;
+                const sfAvgLossPct = sfLossCount > 0 ? sfData.sumLossPct / sfLossCount : 0;
+                const sfPayoff = sfAvgLossPct === 0 ? (sfAvgWinPct > 0 ? 999 : 0) : (sfAvgWinPct / sfAvgLossPct);
                 const sfKelly = sfData.trades > 0 ? (sfPayoff === 999 ? sfWinRate : sfWinRate - (sfLossRate / sfPayoff)) * sfData.trades : 0;
                 
+                // --- AG Score Logic (%) ---
                 const agWinRate = agData.trades > 0 ? (agData.wins / agData.trades) : 0;
                 const agLossRate = agData.trades > 0 ? 1 - agWinRate : 0;
                 const agLossCount = agData.trades - agData.wins;
-                const agAvgWin = agData.wins > 0 ? agData.grossProfit / agData.wins : 0;
-                const agAvgLoss = agLossCount > 0 ? agData.grossLoss / agLossCount : 0;
-                const agPayoff = agAvgLoss === 0 ? (agAvgWin > 0 ? 999 : 0) : (agAvgWin / agAvgLoss);
+                const agAvgWinPct = agData.wins > 0 ? agData.sumWinPct / agData.wins : 0;
+                const agAvgLossPct = agLossCount > 0 ? agData.sumLossPct / agLossCount : 0;
+                const agPayoff = agAvgLossPct === 0 ? (agAvgWinPct > 0 ? 999 : 0) : (agAvgWinPct / agAvgLossPct);
                 const agKelly = agData.trades > 0 ? (agPayoff === 999 ? agWinRate : agWinRate - (agLossRate / agPayoff)) * agData.trades : 0;
                 
+                // --- Texts ---
                 const sfTradesTxt = sfValid ? sfData.trades : '-';
                 const sfWinRateTxt = sfValid ? (sfData.trades > 0 ? (sfWinRate*100).toFixed(1) + '%' : '-') : '-';
                 const sfPFTxt = sfValid ? (sfData.trades > 0 ? (sfPayoff === 999 ? 'Inf' : sfPayoff.toFixed(2)) : '-') : '-';
