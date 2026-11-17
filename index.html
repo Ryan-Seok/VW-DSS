@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- Variable-Weighted DSS 백테스터 V1.0.8 | 코드 업데이트: 2026-11-17 13:43 (KST) -->
+<!-- Variable-Weighted DSS 백테스터 V1.0.8 | 코드 업데이트: 2026-11-17 14:00 (KST) -->
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -88,7 +88,7 @@
     </div>
 
     <!-- 버전 정보 -->
-    <div class="absolute top-2 right-2 text-[10px] text-gray-400 font-mono select-none" title="코드 업데이트: 2026-11-17 13:43 (KST)">V1.0.8 · Updated 2026-11-17 13:43</div>
+    <div class="absolute top-2 right-2 text-[10px] text-gray-400 font-mono select-none" title="코드 업데이트: 2026-11-17 14:00 (KST)">V1.0.8 · Updated 2026-11-17 14:00</div>
 
     <div class="container mx-auto p-4 max-w-[1400px]">
         <!-- 헤더 -->
@@ -617,7 +617,13 @@
                 const res = await fetch(url);
                 if (!res.ok) throw new Error("Network error");
                 const csv = await res.text();
-                Papa.parse(csv, { complete: r => processCSV(r.data), error: e => { throw e; } });
+                // 모드(E~H열)는 gviz로 따로 가져옴: CSV export에서는 GOOGLEFINANCE 기반 수식 값(주간 RSI·모드)이 빈칸으로 내려오기 때문
+                let modeRows = null;
+                try {
+                    const mres = await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=0&range=E4:H&headers=0&t=${Date.now()}`);
+                    if (mres.ok) modeRows = Papa.parse(await mres.text()).data;
+                } catch (me) { console.warn('모드 데이터(gviz) 로드 실패 → CSV의 모드 열 사용', me); }
+                Papa.parse(csv, { complete: r => processCSV(r.data, modeRows), error: e => { throw e; } });
             } catch(e) {
                 badge.className = "flex items-center gap-2 text-sm font-bold text-red-600 bg-white px-3 py-1 rounded-full shadow-sm cursor-pointer";
                 badge.innerHTML = `⚠️ 로드 실패 (여기를 눌러 재시도)`;
@@ -629,17 +635,26 @@
             const f = e.target.files[0]; if (!f) return;
             Papa.parse(f, { complete: r => processCSV(r.data) });
         });
-        function processCSV(data) {
+        function processCSV(data, modeRows) {
             rawPriceData = []; rawModeData = [];
             for (let i = 132; i < data.length; i++) {
                 const row = data[i]; if (!row[0]||!row[1]) continue;
                 const date = parseDate(row[0]), price = parseFloat(String(row[1]).replace(/,/g,''));
                 if (date && !isNaN(price)) rawPriceData.push({date, close: price});
             }
-            for (let i = 3; i < data.length; i++) {
-                const row = data[i]; if (!row[4]||!row[7]) continue;
-                const date = parseDate(row[4]), mode = row[7].trim();
-                if (date && mode) rawModeData.push({date, mode});
+            if (modeRows && modeRows.length > 0) {
+                // gviz 결과: [시작일, 종료일, 주간 RSI, 모드] (시트 E4:H)
+                for (const row of modeRows) {
+                    if (!row[0]||!row[3]) continue;
+                    const date = parseDate(row[0]), mode = row[3].trim();
+                    if (date && mode) rawModeData.push({date, mode});
+                }
+            } else {
+                for (let i = 3; i < data.length; i++) {
+                    const row = data[i]; if (!row[4]||!row[7]) continue;
+                    const date = parseDate(row[4]), mode = row[7].trim();
+                    if (date && mode) rawModeData.push({date, mode});
+                }
             }
             rawPriceData.sort((a,b)=>a.date-b.date);
             rawModeData.sort((a,b)=>a.date-b.date);
